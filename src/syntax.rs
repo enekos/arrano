@@ -56,7 +56,7 @@ const TS: LangDef = LangDef {
         "public", "readonly", "return", "static", "string", "super", "switch", "this", "throw",
         "true", "try", "type", "typeof", "undefined", "var", "void", "while", "yield",
     ],
-    comments: &["//"],
+    comments: &["//", "/*"],
     strings: &['"', '\'', '`'],
     case_insensitive: false,
 };
@@ -146,7 +146,150 @@ const CLIKE: LangDef = LangDef {
         "template", "this", "throw", "true", "try", "typedef", "union", "using", "virtual",
         "void", "while",
     ],
+    comments: &["//", "/*"],
+    strings: &['"', '\''],
+    case_insensitive: false,
+};
+
+const KOTLIN: LangDef = LangDef {
+    keywords: &[
+        "as", "break", "class", "companion", "const", "continue", "data", "do", "else", "enum",
+        "false", "final", "finally", "for", "fun", "if", "import", "in", "init", "interface",
+        "internal", "is", "lateinit", "null", "object", "open", "override", "package",
+        "private", "protected", "public", "return", "sealed", "super", "suspend", "this",
+        "throw", "true", "try", "val", "var", "when", "while",
+    ],
+    comments: &["//", "/*"],
+    strings: &['"'],
+    case_insensitive: false,
+};
+
+const RUBY: LangDef = LangDef {
+    keywords: &[
+        "alias", "and", "attr_accessor", "attr_reader", "begin", "break", "case", "class",
+        "def", "do", "else", "elsif", "end", "ensure", "false", "for", "if", "in", "lambda",
+        "module", "new", "next", "nil", "not", "or", "private", "public", "raise", "require",
+        "rescue", "return", "self", "then", "true", "unless", "until", "when", "while", "yield",
+    ],
+    comments: &["#"],
+    strings: &['"', '\''],
+    case_insensitive: false,
+};
+
+const PHP: LangDef = LangDef {
+    keywords: &[
+        "abstract", "array", "as", "break", "case", "catch", "class", "const", "continue",
+        "declare", "default", "do", "echo", "else", "elseif", "extends", "false", "final",
+        "finally", "for", "foreach", "function", "if", "implements", "include", "interface",
+        "namespace", "new", "null", "private", "protected", "public", "require", "return",
+        "static", "switch", "throw", "true", "try", "use", "var", "while",
+    ],
+    comments: &["//", "#", "/*"],
+    strings: &['"', '\''],
+    case_insensitive: false,
+};
+
+const ELIXIR: LangDef = LangDef {
+    keywords: &[
+        "after", "alias", "and", "case", "cond", "def", "defmacro", "defmodule", "defp",
+        "defstruct", "do", "else", "end", "false", "fn", "if", "import", "in", "nil", "not",
+        "or", "quote", "receive", "require", "true", "unless", "use", "when", "with",
+    ],
+    comments: &["#"],
+    strings: &['"'],
+    case_insensitive: false,
+};
+
+const LUA: LangDef = LangDef {
+    keywords: &[
+        "and", "break", "do", "else", "elseif", "end", "false", "for", "function", "goto",
+        "if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true", "until",
+        "while",
+    ],
+    comments: &["--"],
+    strings: &['"', '\''],
+    case_insensitive: false,
+};
+
+const ZIG: LangDef = LangDef {
+    keywords: &[
+        "and", "break", "catch", "comptime", "const", "continue", "defer", "else", "enum",
+        "errdefer", "error", "export", "extern", "false", "fn", "for", "if", "inline", "null",
+        "or", "orelse", "pub", "return", "struct", "switch", "test", "true", "try",
+        "undefined", "union", "unreachable", "var", "while",
+    ],
     comments: &["//"],
+    strings: &['"'],
+    case_insensitive: false,
+};
+
+const ELM: LangDef = LangDef {
+    keywords: &[
+        "alias", "as", "case", "else", "exposing", "if", "import", "in", "let", "module",
+        "of", "port", "then", "type", "where",
+    ],
+    comments: &["--"],
+    strings: &['"'],
+    case_insensitive: false,
+};
+
+const HASKELL: LangDef = LangDef {
+    keywords: &[
+        "case", "class", "data", "deriving", "do", "else", "if", "import", "in", "instance",
+        "let", "module", "newtype", "of", "then", "type", "where",
+    ],
+    comments: &["--"],
+    strings: &['"'],
+    case_insensitive: false,
+};
+
+const GRAPHQL: LangDef = LangDef {
+    keywords: &[
+        "directive", "enum", "extend", "false", "fragment", "implements", "input", "interface",
+        "mutation", "null", "on", "query", "scalar", "schema", "subscription", "true", "type",
+        "union",
+    ],
+    comments: &["#"],
+    strings: &['"'],
+    case_insensitive: false,
+};
+
+const HCL: LangDef = LangDef {
+    keywords: &[
+        "count", "data", "depends_on", "dynamic", "each", "false", "for", "for_each", "if",
+        "in", "locals", "module", "null", "output", "provider", "resource", "terraform",
+        "true", "var", "variable",
+    ],
+    comments: &["#", "//"],
+    strings: &['"'],
+    case_insensitive: false,
+};
+
+const DOCKER: LangDef = LangDef {
+    keywords: &[
+        "add", "arg", "cmd", "copy", "entrypoint", "env", "expose", "from", "healthcheck",
+        "label", "onbuild", "run", "shell", "stopsignal", "user", "volume", "workdir",
+    ],
+    comments: &["#"],
+    strings: &['"', '\''],
+    case_insensitive: true,
+};
+
+const MAKE: LangDef = LangDef {
+    keywords: &[
+        "define", "else", "endef", "endif", "export", "ifdef", "ifeq", "ifndef", "ifneq",
+        "include", "unexport",
+    ],
+    comments: &["#"],
+    strings: &['"', '\''],
+    case_insensitive: false,
+};
+
+const CSS: LangDef = LangDef {
+    keywords: &[
+        "important", "media", "supports", "import", "keyframes", "from", "to", "root",
+    ],
+    comments: &["/*", "//"],
     strings: &['"', '\''],
     case_insensitive: false,
 };
@@ -157,15 +300,33 @@ pub fn detect(path_or_tag: &str) -> Option<&'static LangDef> {
     let ext = tag.rsplit('.').next().unwrap_or(tag).to_lowercase();
     match ext.as_str() {
         "rs" | "rust" => Some(&RUST),
-        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "typescript" | "javascript" => Some(&TS),
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "typescript" | "javascript" | "svelte"
+        | "vue" => Some(&TS),
         "py" | "python" => Some(&PY),
         "go" | "golang" => Some(&GO),
         "swift" => Some(&SWIFT),
-        "sh" | "bash" | "zsh" | "shell" => Some(&SHELL),
-        "sql" => Some(&SQL),
-        "json" | "yaml" | "yml" | "toml" | "conf" | "ini" | "env" => Some(&CONF),
+        "sh" | "bash" | "zsh" | "shell" | "fish" => Some(&SHELL),
+        "sql" | "psql" | "mysql" => Some(&SQL),
+        "json" | "jsonc" | "yaml" | "yml" | "toml" | "conf" | "ini" | "env" | "properties" => {
+            Some(&CONF)
+        }
         "proto" => Some(&PROTO),
-        "c" | "h" | "cpp" | "hpp" | "cc" | "java" | "kt" | "kts" | "cs" => Some(&CLIKE),
+        "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "java" | "cs" | "scala" | "dart" => {
+            Some(&CLIKE)
+        }
+        "kt" | "kts" | "kotlin" => Some(&KOTLIN),
+        "rb" | "ruby" | "rake" | "gemfile" => Some(&RUBY),
+        "php" => Some(&PHP),
+        "ex" | "exs" | "elixir" | "heex" => Some(&ELIXIR),
+        "lua" => Some(&LUA),
+        "zig" => Some(&ZIG),
+        "elm" => Some(&ELM),
+        "hs" | "haskell" => Some(&HASKELL),
+        "graphql" | "gql" => Some(&GRAPHQL),
+        "tf" | "tfvars" | "hcl" | "terraform" | "nomad" => Some(&HCL),
+        "dockerfile" | "containerfile" => Some(&DOCKER),
+        "makefile" | "mk" | "make" | "justfile" => Some(&MAKE),
+        "css" | "scss" | "sass" | "less" => Some(&CSS),
         _ => None,
     }
 }
@@ -233,6 +394,18 @@ pub fn highlight(line: &str, def: &LangDef) -> Vec<(String, Kind)> {
             out.push((s, Kind::Number));
             continue;
         }
+        // decorators / annotations: @Injectable, @property
+        if c == '@' && chars.get(i + 1).is_some_and(|n| n.is_alphabetic()) {
+            flush(&mut plain, &mut out);
+            let mut s = String::from('@');
+            i += 1;
+            while i < chars.len() && is_ident(chars[i]) {
+                s.push(chars[i]);
+                i += 1;
+            }
+            out.push((s, Kind::Func));
+            continue;
+        }
         // identifiers
         if c.is_alphabetic() || c == '_' {
             flush(&mut plain, &mut out);
@@ -247,9 +420,18 @@ pub fn highlight(line: &str, def: &LangDef) -> Vec<(String, Kind)> {
             } else {
                 def.keywords.contains(&s.as_str())
             };
+            // rust-style macro invocation: println!(…)
+            let macro_bang = !kw && chars.get(i) == Some(&'!')
+                && chars.get(i + 1).is_some_and(|n| *n == '(' || *n == '[' || *n == '{');
+            if macro_bang {
+                s.push('!');
+                i += 1;
+            }
             let next_nonspace = chars[i..].iter().find(|c| !c.is_whitespace());
             let kind = if kw {
                 Kind::Keyword
+            } else if macro_bang {
+                Kind::Func
             } else if s.chars().next().is_some_and(|c| c.is_uppercase()) {
                 Kind::Type
             } else if next_nonspace == Some(&'(') {
@@ -301,7 +483,25 @@ mod tests {
         assert!(detect("server/modules/UseCase.ts").is_some());
         assert!(detect("src/main.rs").is_some());
         assert!(detect("rust").is_some());
-        assert!(detect("Makefile").is_none());
+        for p in [
+            "Dockerfile", "Makefile", "app/models/user.rb", "web/src/App.svelte",
+            "infra/main.tf", "schema.graphql", "lib/core.ex", "build.zig",
+            "src/Main.elm", "styles/app.scss", "Api.kt",
+        ] {
+            assert!(detect(p).is_some(), "should detect {p}");
+        }
+        assert!(detect("LICENSE").is_none());
+    }
+
+    #[test]
+    fn decorators_and_macros() {
+        let toks = highlight("@Injectable() class Foo", &TS);
+        assert!(toks.contains(&("@Injectable".into(), Kind::Func)));
+        let toks = highlight("println!(\"hi\")", &RUST);
+        assert!(toks.contains(&("println!".into(), Kind::Func)));
+        // bang without call chars is not a macro (e.g. `x != y` handled as text)
+        let toks = highlight("if x != y", &RUST);
+        assert!(toks.contains(&("x".into(), Kind::Text)));
     }
 
     #[test]

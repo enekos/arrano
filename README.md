@@ -95,10 +95,13 @@ beyond the diff. Nothing is posted unless you press `P` and confirm.
 
 ## Rendering
 
-Diffs are syntax-highlighted (zero-dep line tokenizer: Rust, TS/JS, Python,
-Go, Swift, SQL, shell, proto, C-family, config formats) with added/removed
-shown as background tints, delta-style. Code fences in comments highlight by
-their language tag too.
+Diffs are syntax-highlighted (zero-dep line tokenizer) with added/removed
+shown as background tints, delta-style. Covered: Rust, TS/JS (+Svelte/Vue),
+Python, Go, Swift, Kotlin, Ruby, PHP, Elixir, Lua, Zig, Elm, Haskell, SQL,
+GraphQL, shell, proto, Terraform/HCL, Dockerfile, Makefile, CSS/SCSS,
+C-family (C/C++/Java/Scala/Dart/C#), and config formats — plus decorators
+(`@Injectable`) and Rust macros (`println!`). Code fences in comments
+highlight by their language tag too.
 
 Comment bodies, descriptions, and claude output render a practical markdown
 subset: fenced code (incl. GitHub `suggestion` blocks), inline code, bold,

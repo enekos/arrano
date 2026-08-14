@@ -1,6 +1,6 @@
 [package]
 name = "arrano"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "Eagle view over your GitHub PRs — lazygit-style TUI on top of gh, with Claude Code reviews"
 repository = "https://github.com/enekos/arrano"
