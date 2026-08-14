@@ -49,6 +49,17 @@ fn run_stdin(args: &[&str], input: &str) -> GhResult<String> {
     }
 }
 
+/// GitHub intermittently 502/503s heavier GraphQL queries — worth retrying.
+fn is_transient(err: &str) -> bool {
+    let e = err.to_lowercase();
+    e.contains("http 50")
+        || e.contains("service unavailable")
+        || e.contains("bad gateway")
+        || e.contains("something went wrong")
+        || e.contains("timeout")
+        || e.contains("timed out")
+}
+
 fn graphql(query: &str, fields: &[(&str, &str)], ints: &[(&str, u64)]) -> GhResult<Value> {
     let mut args: Vec<String> = vec!["api".into(), "graphql".into(), "-f".into(), format!("query={query}")];
     for (k, v) in fields {
@@ -60,14 +71,29 @@ fn graphql(query: &str, fields: &[(&str, &str)], ints: &[(&str, u64)]) -> GhResu
         args.push(format!("{k}={v}"));
     }
     let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    let out = run(&refs)?;
-    serde_json::from_str(&out).map_err(|e| format!("bad gh json: {e}"))
+    let mut delay = std::time::Duration::from_millis(400);
+    let mut attempt = 0;
+    loop {
+        match run(&refs) {
+            Ok(out) => {
+                return serde_json::from_str(&out).map_err(|e| format!("bad gh json: {e}"))
+            }
+            Err(e) if attempt < 2 && is_transient(&e) => {
+                std::thread::sleep(delay);
+                delay *= 2;
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
 }
 
 pub fn viewer_login() -> GhResult<String> {
     Ok(run(&["api", "user", "-q", ".login"])?.trim().to_string())
 }
 
+// statusCheckRollup inside a search is the classic GitHub GraphQL timeout
+// trigger — CI states are fetched separately in small batches (fetch_ci).
 const LIST_QUERY: &str = r#"
 query($q: String!) {
   search(query: $q, type: ISSUE, first: 50) {
@@ -77,7 +103,6 @@ query($q: String!) {
         additions deletions reviewDecision
         repository { nameWithOwner }
         author { login }
-        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
   }
@@ -87,6 +112,37 @@ query($q: String!) {
 pub fn search_prs(search: &str) -> GhResult<Vec<Pr>> {
     let v = graphql(LIST_QUERY, &[("q", search)], &[])?;
     Ok(parse_search(&v))
+}
+
+/// Batched CI lookup: one aliased query per chunk of PRs, far cheaper than
+/// asking the search endpoint to compute rollups.
+pub fn fetch_ci(keys: &[(String, u64)]) -> GhResult<Vec<(String, u64, crate::model::Ci)>> {
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut q = String::from("query {");
+    for (i, (repo, number)) in keys.iter().enumerate() {
+        let Some((owner, name)) = repo.split_once('/') else { continue };
+        q.push_str(&format!(
+            " p{i}: repository(owner: \"{owner}\", name: \"{name}\") {{ \
+             pullRequest(number: {number}) {{ \
+             commits(last: 1) {{ nodes {{ commit {{ statusCheckRollup {{ state }} }} }} }} }} }}"
+        ));
+    }
+    q.push('}');
+    let v = graphql(&q, &[], &[])?;
+    Ok(keys
+        .iter()
+        .enumerate()
+        .map(|(i, (repo, number))| {
+            let state = v
+                .pointer(&format!(
+                    "/data/p{i}/pullRequest/commits/nodes/0/commit/statusCheckRollup/state"
+                ))
+                .and_then(|x| x.as_str());
+            (repo.clone(), *number, crate::model::ci_from(state))
+        })
+        .collect())
 }
 
 const DETAIL_QUERY: &str = r#"

@@ -1328,7 +1328,7 @@ fn draw_help(f: &mut Frame) {
         ("c", "comment (PR · queue on diff line · reply in comments tab)"),
         ("v", "submit review (approve / request changes / comment)"),
         ("", "  — queued diff comments are attached and sent as ONE review"),
-        ("w", "create/reuse a local worktree for the PR branch (zz layout)"),
+        ("w", "create/reuse a local worktree for the PR branch"),
         ("4", "linear view — your assigned issues, grouped by state"),
         ("L", "jump to the PR's Linear ticket in the linear view"),
         ("m", "merge PR (squash / merge / rebase)"),

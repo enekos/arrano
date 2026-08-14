@@ -256,6 +256,8 @@ pub enum AppEvent {
     Rewrite(Result<String, String>),
     LinearIssues(Result<Vec<LinearIssue>, String>),
     LinearJump(String, Result<LinearIssue, String>),
+    /// CI states fetched in batches after a lane loads
+    Ci(Vec<(String, u64, crate::model::Ci)>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1116,6 +1118,21 @@ impl App {
                                 })
                             })
                             .unwrap_or(0);
+                        // CI states load separately, in cheap batched queries
+                        let keys: Vec<(String, u64)> = self.lanes[lane as usize]
+                            .prs
+                            .iter()
+                            .map(|p| (p.repo.clone(), p.number))
+                            .collect();
+                        for chunk in keys.chunks(20) {
+                            let chunk = chunk.to_vec();
+                            let tx = self.tx.clone();
+                            thread::spawn(move || {
+                                if let Ok(states) = gh::fetch_ci(&chunk) {
+                                    let _ = tx.send(AppEvent::Ci(states));
+                                }
+                            });
+                        }
                         if lane == self.lane && self.detail.key.is_none() {
                             self.fetch_selected_detail();
                         }
@@ -1221,6 +1238,17 @@ impl App {
                         self.toast(format!("claude review failed: {e}"), true);
                     } else {
                         self.toast("claude review done — P to post as comment", false);
+                    }
+                }
+            }
+            AppEvent::Ci(states) => {
+                for (repo, number, ci) in states {
+                    for lane in self.lanes.iter_mut() {
+                        for pr in lane.prs.iter_mut() {
+                            if pr.repo == repo && pr.number == number {
+                                pr.ci = ci;
+                            }
+                        }
                     }
                 }
             }

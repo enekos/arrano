@@ -101,7 +101,7 @@ fn b(v: &Value, ptr: &str) -> bool {
     v.pointer(ptr).and_then(|x| x.as_bool()).unwrap_or(false)
 }
 
-fn ci_from(state: Option<&str>) -> Ci {
+pub fn ci_from(state: Option<&str>) -> Ci {
     match state {
         Some("SUCCESS") => Ci::Pass,
         Some("FAILURE") | Some("ERROR") => Ci::Fail,
@@ -121,10 +121,8 @@ pub fn parse_search(root: &Value) -> Vec<Pr> {
         if n.get("number").is_none() {
             continue;
         }
-        let ci = ci_from(
-            n.pointer("/commits/nodes/0/commit/statusCheckRollup/state")
-                .and_then(|x| x.as_str()),
-        );
+        // CI arrives later via gh::fetch_ci — searches with rollups time out
+        let ci = Ci::None;
         out.push(Pr {
             id: s(n, "/id"),
             repo: s(n, "/repository/nameWithOwner"),
@@ -394,7 +392,11 @@ mod tests {
         assert_eq!(prs[0].repo, "o/alpha");
         assert_eq!(prs[0].ci, Ci::None);
         assert!(prs[0].is_draft);
-        assert_eq!(prs[1].ci, Ci::Fail);
+        // CI is no longer part of the search query — filled in by fetch_ci
+        assert_eq!(prs[1].ci, Ci::None);
+        assert_eq!(ci_from(Some("FAILURE")), Ci::Fail);
+        assert_eq!(ci_from(Some("SUCCESS")), Ci::Pass);
+        assert_eq!(ci_from(None), Ci::None);
         assert_eq!(prs[1].review_decision, "");
     }
 

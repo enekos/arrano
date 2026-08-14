@@ -110,4 +110,4 @@ threads show their diff hunk; resolved threads start folded.
 | `ARRANO_REFRESH_SECS` | auto-refresh cadence, 0 disables (default 180) |
 | `ARRANO_LLM_GGUF` / `ARRANO_LLM_MODEL` | model for `ctrl-r` humanize (llama.cpp path / ollama name) |
 | `LINEAR_API_KEY` | Linear GraphQL auth for the linear view |
-| `ZZ_WORKTREE_DIR` | overrides where `w` places worktrees |
+| `ARRANO_WORKTREE_DIR` | overrides where `w` places worktrees (default: sibling `<repo>-worktrees/`) |

@@ -1,6 +1,6 @@
 //! Local checkout discovery and worktree management for reviewing PRs with
-//! real code context. Follows the zz convention: worktrees live in a sibling
-//! `<repo>-worktrees/<branch-slug>` directory ($ZZ_WORKTREE_DIR overrides).
+//! real code context. Worktrees live in a sibling
+//! `<repo>-worktrees/<branch-slug>` directory ($ARRANO_WORKTREE_DIR overrides).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -67,7 +67,9 @@ pub fn branch_checkout(repo: &str, branch: &str) -> Option<PathBuf> {
 
 fn worktree_target(repo_path: &Path, branch: &str) -> PathBuf {
     let name = repo_path.file_name().and_then(|n| n.to_str()).unwrap_or("repo");
-    if let Ok(base) = std::env::var("ZZ_WORKTREE_DIR") {
+    let base = std::env::var("ARRANO_WORKTREE_DIR")
+        .or_else(|_| std::env::var("ZZ_WORKTREE_DIR"));
+    if let Ok(base) = base {
         return PathBuf::from(base).join(name).join(slug(branch));
     }
     let parent = repo_path.parent().unwrap_or(Path::new("."));
