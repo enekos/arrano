@@ -70,6 +70,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             "post claude review as PR comment?",
             &[("y", "post it"), ("esc", "cancel")],
         ),
+        Some(Modal::Links) => draw_links(f, app),
         Some(Modal::Help) => draw_help(f),
         None => {}
     }
@@ -1131,6 +1132,7 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             ("c", "reply"),
             ("x", "resolve"),
             ("z", "fold"),
+            ("f", "links"),
             ("o", "open"),
             ("esc", "list"),
         ],
@@ -1249,6 +1251,70 @@ fn draw_composer(f: &mut Frame, app: &App, c: &Compose) {
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
 }
 
+fn draw_links(f: &mut Frame, app: &App) {
+    let fa = f.area();
+    let w = fa.width.saturating_sub(8).min(90);
+    let h = (app.links.len() as u16 + 2).min(fa.height.saturating_sub(4));
+    let area = centered(w, h, fa);
+    f.render_widget(Clear, area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::new().fg(Color::Cyan))
+        .title(" links ")
+        .title_bottom(Line::from(Span::styled(
+            " enter/1-9 open · j/k move · esc close ",
+            Style::new().fg(Color::DarkGray),
+        )));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+    let iw = inner.width as usize;
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, (label, url)) in app.links.iter().enumerate() {
+        let sel = i == app.links_sel;
+        let num = if i < 9 { format!("{} ", i + 1) } else { "  ".into() };
+        let mut label = label.trim().replace('\n', " ");
+        if label.chars().count() > 40 {
+            label = label.chars().take(39).collect::<String>() + "…";
+        }
+        let used = 2 + 2 + label.chars().count() + 2;
+        let mut short_url = url.clone();
+        let avail = iw.saturating_sub(used);
+        if short_url.chars().count() > avail {
+            short_url = short_url.chars().take(avail.saturating_sub(1)).collect::<String>() + "…";
+        }
+        let mut spans = vec![
+            Span::raw(if sel { "▶ " } else { "  " }),
+            Span::styled(num, Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                label,
+                if sel {
+                    Style::new().fg(Color::Rgb(97, 175, 239)).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::new().fg(Color::Rgb(97, 175, 239))
+                },
+            ),
+            Span::raw("  "),
+            Span::styled(short_url, Style::new().fg(Color::DarkGray)),
+        ];
+        if sel {
+            spans = spans
+                .into_iter()
+                .map(|s| {
+                    let style = s.style.bg(Color::Rgb(40, 44, 52));
+                    Span::styled(s.content, style)
+                })
+                .collect();
+        }
+        lines.push(Line::from(spans));
+    }
+    let scroll = if app.links_sel as u16 + 1 > inner.height {
+        app.links_sel as u16 + 1 - inner.height
+    } else {
+        0
+    };
+    f.render_widget(Paragraph::new(Text::from(lines)).scroll((scroll, 0)), inner);
+}
+
 fn draw_help(f: &mut Frame) {
     let entries: &[(&str, &str)] = &[
         ("1 / 2 / 3", "lanes: my PRs / review requested / search"),
@@ -1258,6 +1324,7 @@ fn draw_help(f: &mut Frame) {
         ("tab", "toggle list ↔ detail focus"),
         ("h / l", "switch detail tab"),
         ("o", "open in browser (PR, or check run in checks tab)"),
+        ("f", "link picker — open any link from the current comment/body"),
         ("c", "comment (PR · queue on diff line · reply in comments tab)"),
         ("v", "submit review (approve / request changes / comment)"),
         ("", "  — queued diff comments are attached and sent as ONE review"),

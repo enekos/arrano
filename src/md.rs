@@ -526,6 +526,55 @@ pub fn clean_comment(author: &str, body: &str) -> String {
     collapse_blanks(&b)
 }
 
+/// Collect every link in a (cleaned) markdown text: `[label](url)` pairs and
+/// bare URLs, in order of appearance, deduplicated by URL.
+pub fn extract_links(text: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut push = |label: String, url: String| {
+        if url.starts_with("http") && !seen.contains(&url) {
+            seen.push(url.clone());
+            out.push((label, url));
+        }
+    };
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '[' || (chars[i] == '!' && chars.get(i + 1) == Some(&'[')) {
+            let open = if chars[i] == '!' { i + 1 } else { i };
+            if let Some(close) = (open + 1..chars.len()).find(|&k| chars[k] == ']') {
+                if chars.get(close + 1) == Some(&'(') {
+                    if let Some(end) = (close + 2..chars.len()).find(|&k| chars[k] == ')') {
+                        let label: String = chars[open + 1..close].iter().collect();
+                        let url: String = chars[close + 2..end].iter().collect();
+                        let label = if label.trim().is_empty() { url.clone() } else { label };
+                        push(label, url);
+                        i = end + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        if (starts_with_at(&chars, i, "http://") || starts_with_at(&chars, i, "https://"))
+            && (i == 0 || !chars[i - 1].is_alphanumeric())
+        {
+            let mut j = i;
+            while j < chars.len() && !chars[j].is_whitespace() && chars[j] != ')' {
+                j += 1;
+            }
+            let mut url: String = chars[i..j].iter().collect();
+            while url.ends_with(['.', ',', ';', ':']) {
+                url.pop();
+            }
+            push(url.clone(), url);
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+    out
+}
+
 /// Prepend a fixed indent to every rendered line.
 pub fn indent(lines: Vec<Line<'static>>, pad: &str) -> Vec<Line<'static>> {
     lines
@@ -621,6 +670,20 @@ mod tests {
         assert!(!c.contains("cursor.com"), "buttons/footer must be gone: {c}");
         assert!(!c.contains("<!--"));
         assert!(!c.contains("<div"));
+    }
+
+    #[test]
+    fn extracts_links_in_order_without_dupes() {
+        let links = extract_links(
+            "see [docs](https://x.io/d) and https://y.io/raw. also [again](https://x.io/d)",
+        );
+        assert_eq!(
+            links,
+            vec![
+                ("docs".to_string(), "https://x.io/d".to_string()),
+                ("https://y.io/raw".to_string(), "https://y.io/raw".to_string()),
+            ]
+        );
     }
 
     #[test]

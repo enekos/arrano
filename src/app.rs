@@ -83,6 +83,7 @@ pub enum Modal {
     Update,
     ConfirmPost,
     Review,
+    Links,
     Help,
 }
 
@@ -371,6 +372,10 @@ pub struct App {
     pub pending: HashMap<(String, u64), Vec<PendingComment>>,
     refresh_secs: u64,
 
+    /// links collected for the picker modal: (label, url)
+    pub links: Vec<(String, String)>,
+    pub links_sel: usize,
+
     /// pane rectangles from the last frame, for mouse routing
     pub areas: Areas,
     /// content viewport height from the last frame, for paging
@@ -478,6 +483,8 @@ impl App {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(180),
+            links: Vec::new(),
+            links_sel: 0,
             areas: Areas::default(),
             page_rows: 20,
             anim: None,
@@ -582,6 +589,102 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Gather every link reachable from the current context into the picker.
+    fn open_link_picker(&mut self) {
+        let mut links: Vec<(String, String)> = Vec::new();
+        let mut add_body = |author: &str, body: &str| {
+            links.extend(crate::md::extract_links(&crate::md::clean_comment(author, body)));
+        };
+        match self.view {
+            View::Linear => {
+                if let Some(i) = self.selected_issue() {
+                    let (desc, url, comments) =
+                        (i.description.clone(), i.url.clone(), i.comments.clone());
+                    add_body("", &desc);
+                    for c in &comments {
+                        add_body(&c.author, &c.body);
+                    }
+                    links.push(("open issue on Linear".into(), url));
+                }
+            }
+            View::Prs => {
+                match self.tab {
+                    Tab::Comments => {
+                        if let (Some(d), Some(block)) =
+                            (self.detail.data.as_ref(), self.detail.blocks.get(self.block_sel))
+                        {
+                            match block {
+                                CBlock::Comment(i) => {
+                                    if let Some(c) = d.comments.get(*i) {
+                                        let (a, b, u) =
+                                            (c.author.clone(), c.body.clone(), c.url.clone());
+                                        add_body(&a, &b);
+                                        links.push(("open comment on GitHub".into(), u));
+                                    }
+                                }
+                                CBlock::Review(i) => {
+                                    if let Some(r) = d.reviews.get(*i) {
+                                        let (a, b, u) =
+                                            (r.author.clone(), r.body.clone(), r.url.clone());
+                                        add_body(&a, &b);
+                                        links.push(("open review on GitHub".into(), u));
+                                    }
+                                }
+                                CBlock::Thread(i) => {
+                                    if let Some(t) = d.threads.get(*i) {
+                                        let comments = t.comments.clone();
+                                        for c in &comments {
+                                            add_body(&c.author, &c.body);
+                                        }
+                                        if let Some(u) =
+                                            comments.first().map(|c| c.url.clone())
+                                        {
+                                            links.push(("open thread on GitHub".into(), u));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Tab::Claude => {
+                        let text = self.claude.text.clone();
+                        add_body("", &text);
+                    }
+                    _ => {
+                        if let Some(d) = self.detail.data.as_ref() {
+                            let body = d.body.clone();
+                            add_body("", &body);
+                        }
+                    }
+                }
+                if let Some(pr) = self.selected_pr() {
+                    let url = pr.url.clone();
+                    if !links.iter().any(|(_, u)| *u == url) {
+                        links.push(("open PR on GitHub".into(), url));
+                    }
+                }
+            }
+        }
+        // dedupe by url, keep first label
+        let mut seen: Vec<String> = Vec::new();
+        links.retain(|(_, u)| {
+            if seen.contains(u) {
+                false
+            } else {
+                seen.push(u.clone());
+                true
+            }
+        });
+        links.truncate(20);
+        if links.is_empty() {
+            self.toast("no links here", true);
+            return;
+        }
+        self.links = links;
+        self.links_sel = 0;
+        self.modal = Some(Modal::Links);
     }
 
     fn clamp_sel_linear(&mut self) {
@@ -1290,6 +1393,10 @@ impl App {
                 }
                 return;
             }
+            KeyCode::Char('f') if !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.open_link_picker();
+                return;
+            }
             KeyCode::Char('R') => {
                 self.start_claude_review();
                 return;
@@ -1373,6 +1480,7 @@ impl App {
             }
             KeyCode::Char('f') if ctrl => self.page_scroll(1.0),
             KeyCode::Char('b') if ctrl => self.page_scroll(-1.0),
+            KeyCode::Char('f') => self.open_link_picker(),
             KeyCode::Char('g') => match self.focus {
                 Focus::List => {
                     self.linear.sel = 0;
@@ -1728,6 +1836,31 @@ impl App {
                     }
                 }
                 _ => self.modal = None,
+            },
+            Modal::Links => match key.code {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('f') => self.modal = None,
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if self.links_sel + 1 < self.links.len() {
+                        self.links_sel += 1;
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.links_sel = self.links_sel.saturating_sub(1)
+                }
+                KeyCode::Enter | KeyCode::Char('o') => {
+                    if let Some((_, url)) = self.links.get(self.links_sel) {
+                        gh::open_url(url);
+                    }
+                    self.modal = None;
+                }
+                KeyCode::Char(c @ '1'..='9') => {
+                    let idx = c as usize - '1' as usize;
+                    if let Some((_, url)) = self.links.get(idx) {
+                        gh::open_url(url);
+                        self.modal = None;
+                    }
+                }
+                _ => {}
             },
             Modal::ConfirmPost => match key.code {
                 KeyCode::Char('y') => {
