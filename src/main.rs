@@ -6,6 +6,7 @@ mod llm;
 mod md;
 mod model;
 mod repo;
+mod syntax;
 mod ui;
 
 use std::io::IsTerminal;
@@ -22,17 +23,20 @@ use crate::app::App;
 
 const USAGE: &str = "arrano — eagle view over your GitHub PRs
 
-usage: arrano [--org <org>]
+usage: arrano [--org <org>] [--eink]
 
   -o, --org <org>   only show PRs in one org/owner (e.g. --org my-org)
+      --eink        monochrome mode for e-ink displays (also $ARRANO_EINK=1)
   -V, --version     print version
   -h, --help        show this help";
 
-fn parse_args() -> Option<String> {
+fn parse_args() -> (Option<String>, bool) {
     let mut org: Option<String> = None;
+    let mut eink = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
+            "--eink" => eink = true,
             "-o" | "--org" => match args.next() {
                 Some(v) => org = Some(v),
                 None => {
@@ -55,11 +59,11 @@ fn parse_args() -> Option<String> {
             }
         }
     }
-    org
+    (org, eink)
 }
 
 fn main() -> Result<()> {
-    let org = parse_args();
+    let (org, eink) = parse_args();
     if !std::io::stdout().is_terminal() {
         eprintln!("arrano is a TUI — run it in a terminal");
         std::process::exit(1);
@@ -67,6 +71,7 @@ fn main() -> Result<()> {
 
     let (tx, rx) = mpsc::channel();
     let mut app = App::new(tx, org);
+    app.eink = app.eink || eink;
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableMouseCapture);
 
@@ -79,7 +84,12 @@ fn main() -> Result<()> {
             app.poll_auto_refresh();
             app.expire_toasts();
             app.tick_anim();
-            terminal.draw(|f| ui::draw(f, &mut app))?;
+            terminal.draw(|f| {
+                ui::draw(f, &mut app);
+                if app.eink {
+                    ui::eink_remap(f.buffer_mut());
+                }
+            })?;
             // animate at ~60fps while a smooth scroll is in flight
             let timeout = if app.anim.is_some() {
                 Duration::from_millis(15)

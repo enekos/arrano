@@ -14,6 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/enekos/arrano/master/install.sh | b
 ```
 arrano                  # everything, all orgs
 arrano --org my-org     # scope both lanes to one org/owner
+arrano --eink           # monochrome mode for e-ink displays
 ```
 
 Requires `gh` (authenticated). For Claude reviews: the `claude` CLI. For the
@@ -94,6 +95,11 @@ beyond the diff. Nothing is posted unless you press `P` and confirm.
 
 ## Rendering
 
+Diffs are syntax-highlighted (zero-dep line tokenizer: Rust, TS/JS, Python,
+Go, Swift, SQL, shell, proto, C-family, config formats) with added/removed
+shown as background tints, delta-style. Code fences in comments highlight by
+their language tag too.
+
 Comment bodies, descriptions, and claude output render a practical markdown
 subset: fenced code (incl. GitHub `suggestion` blocks), inline code, bold,
 strikethrough, links, tables, quotes, task lists. Bot noise is stripped
@@ -101,6 +107,11 @@ before rendering: Linear linkback comments compact to the ticket link, Cursor
 bugbot findings lose their buttons/footers and gain clean `file:line`
 locations, HTML wrappers and badge images are removed for everyone. Review
 threads show their diff hunk; resolved threads start folded.
+
+`--eink` renders the whole UI in pure monochrome for grayscale displays:
+every color becomes a font treatment — added lines bold, removed lines
+struck through, secondary text dim, links/highlights underlined, selections
+reversed.
 
 ## Environment
 
@@ -111,3 +122,4 @@ threads show their diff hunk; resolved threads start folded.
 | `ARRANO_LLM_GGUF` / `ARRANO_LLM_MODEL` | model for `ctrl-r` humanize (llama.cpp path / ollama name) |
 | `LINEAR_API_KEY` | Linear GraphQL auth for the linear view |
 | `ARRANO_WORKTREE_DIR` | overrides where `w` places worktrees (default: sibling `<repo>-worktrees/`) |
+| `ARRANO_EINK` | `1` enables monochrome e-ink mode (same as `--eink`) |

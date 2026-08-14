@@ -361,6 +361,8 @@ pub struct App {
     pub checks_sel: usize,
     pub block_sel: usize,
 
+    /// monochrome rendering for e-ink displays
+    pub eink: bool,
     pub modal: Option<Modal>,
     pub toasts: Vec<(String, Instant, bool)>,
     pub pending_actions: usize,
@@ -473,6 +475,7 @@ impl App {
             claude_scroll: 0,
             checks_sel: 0,
             block_sel: 0,
+            eink: std::env::var("ARRANO_EINK").map(|v| v != "0").unwrap_or(false),
             modal: None,
             toasts: Vec::new(),
             pending_actions: 0,

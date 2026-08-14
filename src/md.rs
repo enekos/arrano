@@ -223,6 +223,7 @@ pub fn render(text: &str, width: usize) -> Vec<Line<'static>> {
     let mut out: Vec<Line> = Vec::new();
     let mut in_fence = false;
     let mut suggestion = false;
+    let mut fence_lang: Option<&'static crate::syntax::LangDef> = None;
     let fence_border = Style::new().fg(Color::DarkGray);
     let src: Vec<&str> = text.lines().collect();
 
@@ -239,6 +240,11 @@ pub fn render(text: &str, width: usize) -> Vec<Line<'static>> {
                 in_fence = true;
                 let lang = stripped.trim_start_matches('`').trim();
                 suggestion = lang == "suggestion";
+                fence_lang = if suggestion || lang.is_empty() {
+                    None
+                } else {
+                    crate::syntax::detect(lang)
+                };
                 let head = if suggestion {
                     "╭ suggested change".to_string()
                 } else if lang.is_empty() {
@@ -258,10 +264,20 @@ pub fn render(text: &str, width: usize) -> Vec<Line<'static>> {
         if in_fence {
             let body_fg = if suggestion { SUGGESTION_FG } else { FENCE_FG };
             for chunk in hard_wrap(line, width.saturating_sub(2)) {
-                out.push(Line::from(vec![
-                    Span::styled("│ ", fence_border),
-                    Span::styled(chunk, Style::new().fg(body_fg)),
-                ]));
+                let mut spans = vec![Span::styled("│ ", fence_border)];
+                match fence_lang {
+                    Some(def) => {
+                        for (text, kind) in crate::syntax::highlight(&chunk, def) {
+                            let style = match kind {
+                                crate::syntax::Kind::Text => Style::new().fg(FENCE_FG),
+                                k => crate::syntax::style(k),
+                            };
+                            spans.push(Span::styled(text, style));
+                        }
+                    }
+                    None => spans.push(Span::styled(chunk, Style::new().fg(body_fg))),
+                }
+                out.push(Line::from(spans));
             }
             continue;
         }

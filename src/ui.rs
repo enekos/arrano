@@ -8,6 +8,7 @@ use crate::app::{App, CBlock, Compose, Focus, Input, Lane, Modal, Tab, View, TAB
 use crate::linear::LinearIssue;
 use crate::md;
 use crate::model::{rel_time, Check, Ci, Comment, Pr};
+use crate::syntax;
 
 const SPINNER: [&str; 4] = ["⠋", "⠙", "⠸", "⠴"];
 
@@ -459,42 +460,97 @@ fn draw_diff(f: &mut Frame, app: &App, area: Rect) {
                 .collect()
         })
         .unwrap_or_default();
+    const ADDED_BG: Color = Color::Rgb(24, 46, 28);
+    const REMOVED_BG: Color = Color::Rgb(52, 27, 30);
+    const SEL_BG: Color = Color::Rgb(45, 50, 62);
+    let eink = app.eink;
     let mut lines: Vec<Line> = Vec::with_capacity(height);
     for (i, raw) in diff.lines.iter().enumerate().skip(scroll).take(height) {
-        let mut style = if raw.starts_with("diff --git") {
-            Style::new().fg(Color::White).bg(Color::Rgb(50, 55, 65)).add_modifier(Modifier::BOLD)
-        } else if raw.starts_with("+++") || raw.starts_with("---") {
-            Style::new().fg(Color::White).add_modifier(Modifier::BOLD)
-        } else if raw.starts_with("@@") {
-            Style::new().fg(Color::Cyan)
-        } else if raw.starts_with('+') {
-            Style::new().fg(Color::Green)
-        } else if raw.starts_with('-') {
-            Style::new().fg(Color::Red)
-        } else {
-            Style::new()
-        };
-        let has_queued = diff
-            .targets
-            .get(i)
-            .and_then(|t| t.as_ref())
+        let selected = cursor_active && i == sel;
+        let target = diff.targets.get(i).and_then(|t| t.as_ref());
+        let has_queued = target
             .map(|t| queued.contains(&(t.path.clone(), t.line, t.side)))
             .unwrap_or(false);
+
+        // header / hunk lines keep their single-style rendering
+        let header_style = if raw.starts_with("diff --git") {
+            Some(Style::new().fg(Color::White).bg(Color::Rgb(50, 55, 65)).add_modifier(Modifier::BOLD))
+        } else if raw.starts_with("+++") || raw.starts_with("---") {
+            Some(Style::new().fg(Color::White).add_modifier(Modifier::BOLD))
+        } else if raw.starts_with("@@") {
+            Some(if eink {
+                Style::new().add_modifier(Modifier::UNDERLINED)
+            } else {
+                Style::new().fg(Color::Cyan)
+            })
+        } else {
+            None
+        };
+
         let mut spans: Vec<Span> = Vec::new();
-        if cursor_active && i == sel {
-            style = style.bg(Color::Rgb(45, 50, 62));
-            spans.push(Span::styled("▶", Style::new().fg(Color::Cyan).bg(Color::Rgb(45, 50, 62))));
+        // gutter
+        if selected {
+            spans.push(Span::styled("▶", Style::new().fg(Color::Cyan).bg(SEL_BG)));
         } else if has_queued {
             spans.push(Span::styled("●", Style::new().fg(Color::Yellow)));
         } else {
             spans.push(Span::raw(" "));
         }
-        spans.push(Span::styled(raw.clone(), style));
-        // pad the selected row so the highlight spans the width
-        if cursor_active && i == sel {
+
+        let (line_bg, weight): (Option<Color>, Modifier) = if raw.starts_with('+') {
+            if eink {
+                (None, Modifier::BOLD)
+            } else {
+                (Some(ADDED_BG), Modifier::empty())
+            }
+        } else if raw.starts_with('-') {
+            if eink {
+                (None, Modifier::CROSSED_OUT)
+            } else {
+                (Some(REMOVED_BG), Modifier::empty())
+            }
+        } else {
+            (None, Modifier::empty())
+        };
+        let bg = if selected { Some(SEL_BG) } else { line_bg };
+        let apply = |mut s: Style| {
+            if let Some(b) = bg {
+                s = s.bg(b);
+            }
+            s.add_modifier(weight)
+        };
+
+        if let Some(hs) = header_style {
+            spans.push(Span::styled(raw.clone(), if selected { hs.bg(SEL_BG) } else { hs }));
+        } else if let (Some(t), false) = (target, eink) {
+            // syntax-highlighted code line: marker char, then tokens
+            let (marker, rest) = raw.split_at(raw.len().min(1));
+            let marker_style = apply(if raw.starts_with('+') {
+                Style::new().fg(Color::Green)
+            } else if raw.starts_with('-') {
+                Style::new().fg(Color::Red)
+            } else {
+                Style::new().fg(Color::DarkGray)
+            });
+            spans.push(Span::styled(marker.to_string(), marker_style));
+            match syntax::detect(&t.path) {
+                Some(def) => {
+                    for (text, kind) in syntax::highlight(rest, def) {
+                        spans.push(Span::styled(text, apply(syntax::style(kind))));
+                    }
+                }
+                None => spans.push(Span::styled(rest.to_string(), apply(Style::new()))),
+            }
+        } else {
+            // e-ink or unmapped line: weight instead of color
+            spans.push(Span::styled(raw.clone(), apply(Style::new())));
+        }
+
+        // pad tinted/selected rows so the background spans the full width
+        if bg.is_some() {
             let used = 1 + raw.chars().count();
             let pad = (area.width as usize).saturating_sub(used);
-            spans.push(Span::styled(" ".repeat(pad), style));
+            spans.push(Span::styled(" ".repeat(pad), apply(Style::new())));
         }
         lines.push(Line::from(spans));
     }
@@ -799,6 +855,63 @@ fn draw_claude(f: &mut Frame, app: &mut App, area: Rect) {
 fn clamp_scroll(scroll: u16, total: usize, height: u16) -> u16 {
     let max = total.saturating_sub(height as usize) as u16;
     scroll.min(max)
+}
+
+// ---- e-ink mode ----
+
+enum EinkClass {
+    Plain,
+    Dim,
+    Strong,
+    Mark,
+}
+
+/// Map a color to its monochrome intent: attention → bold, secondary → dim,
+/// highlights/links → underline.
+fn eink_classify(fg: Color) -> EinkClass {
+    match fg {
+        Color::DarkGray | Color::Gray => EinkClass::Dim,
+        Color::Red | Color::LightRed => EinkClass::Strong,
+        Color::Yellow | Color::LightYellow => EinkClass::Mark,
+        Color::Blue | Color::LightBlue => EinkClass::Mark,
+        Color::Rgb(r, g, b) => {
+            let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+            if max - min < 30 {
+                if max < 170 { EinkClass::Dim } else { EinkClass::Plain }
+            } else if r > g.saturating_add(40) && r > b.saturating_add(40) {
+                EinkClass::Strong
+            } else if b > r.saturating_add(30) && b > g.saturating_add(20) {
+                EinkClass::Mark
+            } else if r > 140 && g > 110 && b < 90 {
+                EinkClass::Mark
+            } else {
+                EinkClass::Plain
+            }
+        }
+        _ => EinkClass::Plain,
+    }
+}
+
+/// Post-process a rendered frame into pure monochrome: every color becomes a
+/// font treatment (bold/dim/underline/reverse), so the UI reads on grayscale
+/// e-ink panels.
+pub fn eink_remap(buf: &mut ratatui::buffer::Buffer) {
+    for cell in buf.content.iter_mut() {
+        let mut m = cell.modifier;
+        if cell.bg != Color::Reset {
+            m.insert(Modifier::REVERSED);
+        }
+        match eink_classify(cell.fg) {
+            EinkClass::Dim => m.insert(Modifier::DIM),
+            EinkClass::Strong => m.insert(Modifier::BOLD),
+            EinkClass::Mark => m.insert(Modifier::UNDERLINED),
+            EinkClass::Plain => {}
+        }
+        cell.modifier = m;
+        cell.fg = Color::Reset;
+        cell.bg = Color::Reset;
+        cell.underline_color = Color::Reset;
+    }
 }
 
 // ---- linear view ----
