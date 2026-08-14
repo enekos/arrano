@@ -6,7 +6,12 @@ all repos, in one screen — diff, checks, review threads, a full review
 workflow, your assigned Linear issues, and Claude Code reviews built in.
 
 ```
-cargo install --path .
+curl -fsSL https://raw.githubusercontent.com/enekos/arrano/master/install.sh | bash
+```
+
+(or `cargo install --path .` from a checkout)
+
+```
 arrano                  # everything, all orgs
 arrano --org my-org     # scope both lanes to one org/owner
 ```

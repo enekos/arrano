@@ -25,6 +25,7 @@ const USAGE: &str = "arrano — eagle view over your GitHub PRs
 usage: arrano [--org <org>]
 
   -o, --org <org>   only show PRs in one org/owner (e.g. --org my-org)
+  -V, --version     print version
   -h, --help        show this help";
 
 fn parse_args() -> Option<String> {
@@ -42,6 +43,10 @@ fn parse_args() -> Option<String> {
             _ if a.starts_with("--org=") => org = Some(a["--org=".len()..].to_string()),
             "-h" | "--help" => {
                 println!("{USAGE}");
+                std::process::exit(0);
+            }
+            "-V" | "--version" => {
+                println!("arrano {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             other => {
