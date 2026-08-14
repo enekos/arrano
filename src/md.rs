@@ -477,6 +477,123 @@ fn linear_bot_compact(body: &str) -> Option<String> {
     Some(out)
 }
 
+/// HTML element names that are safe to strip when unconverted — anything
+/// else in angle brackets (e.g. `Vec<String>` in prose) is left alone.
+const STRIP_TAGS: &[&str] = &[
+    "div", "span", "p", "details", "summary", "table", "thead", "tbody", "tfoot", "tr", "td",
+    "th", "ul", "ol", "li", "a", "img", "picture", "source", "video", "sup", "sub", "br", "hr",
+    "center", "font", "section", "article", "u", "small", "big", "em", "i", "b", "strong",
+    "code", "pre", "blockquote", "kbd", "tt", "input", "dl", "dt", "dd", "g-emoji", "del",
+    "ins", "mark", "abbr", "figure", "figcaption",
+];
+
+fn is_strippable_tag(inner: &str) -> bool {
+    let name: String = inner
+        .trim_start_matches('/')
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
+        .collect::<String>()
+        .to_lowercase();
+    !name.is_empty() && STRIP_TAGS.contains(&name.as_str())
+}
+
+/// Drop remaining known HTML tags; leave unknown angle-bracket text intact.
+fn strip_known_tags(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '<' {
+            if let Some(end) = (i + 1..chars.len().min(i + 300)).find(|&k| chars[k] == '>') {
+                let inner: String = chars[i + 1..end].iter().collect();
+                if is_strippable_tag(&inner) {
+                    i = end + 1;
+                    continue;
+                }
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+/// Convert one non-code text fragment: common HTML to markdown, whitelist
+/// stripping for the rest, entity decoding.
+fn html_fragment_to_md(s: &str) -> String {
+    if !s.contains('<') && !s.contains('&') {
+        return s.to_string();
+    }
+    let mut t = s.to_string();
+    for (a, b) in [
+        ("<b>", "**"), ("</b>", "**"), ("<strong>", "**"), ("</strong>", "**"),
+        ("<code>", "`"), ("</code>", "`"), ("<tt>", "`"), ("</tt>", "`"),
+        ("<kbd>", "`"), ("</kbd>", "`"),
+        ("<pre>", "\n```\n"), ("</pre>", "\n```\n"),
+        ("<summary>", "**"), ("</summary>", "**\n"),
+        ("<li>", "\n- "), ("</li>", ""),
+        ("<blockquote>", "\n> "), ("</blockquote>", "\n"),
+        ("<hr>", "\n---\n"), ("<hr/>", "\n---\n"), ("<hr />", "\n---\n"),
+        ("<tr>", "\n| "), ("</td>", " | "), ("</th>", " | "),
+        ("<p>", "\n"), ("</p>", "\n"),
+        ("<br>", "\n"), ("<br/>", "\n"), ("<br />", "\n"),
+    ] {
+        if t.contains(a) {
+            t = t.replace(a, b);
+        }
+    }
+    for i in 1..=6 {
+        t = t.replace(&format!("<h{i}>"), &format!("\n{} ", "#".repeat(i)));
+        t = t.replace(&format!("</h{i}>"), "\n");
+    }
+    t = strip_known_tags(&t);
+    for (a, b) in [
+        ("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&apos;", "'"),
+        ("&nbsp;", " "), ("&hellip;", "…"), ("&mdash;", "—"), ("&ndash;", "–"),
+        // decode last so `&amp;lt;` becomes `&lt;` (literal), not `<`
+        ("&amp;", "&"),
+    ] {
+        if t.contains(a) {
+            t = t.replace(a, b);
+        }
+    }
+    t
+}
+
+/// Apply `f` to text outside fenced code blocks and inline backtick spans,
+/// so HTML handling never mangles code like `Vec<String>`.
+fn map_outside_code(s: &str, f: impl Fn(&str) -> String) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_fence = false;
+    for (idx, line) in s.lines().enumerate() {
+        if idx > 0 {
+            out.push('\n');
+        }
+        if line.trim_start().starts_with("```") {
+            in_fence = !in_fence;
+            out.push_str(line);
+            continue;
+        }
+        if in_fence {
+            out.push_str(line);
+            continue;
+        }
+        let mut in_code = false;
+        for (i, part) in line.split('`').enumerate() {
+            if i > 0 {
+                out.push('`');
+            }
+            if in_code {
+                out.push_str(part);
+            } else {
+                out.push_str(&f(part));
+            }
+            in_code = !in_code;
+        }
+    }
+    out
+}
+
 fn collapse_blanks(s: &str) -> String {
     let mut out: Vec<&str> = Vec::new();
     let mut blank = false;
@@ -510,13 +627,7 @@ pub fn clean_comment(author: &str, body: &str) -> String {
     b = remove_between(&b, "<!--", "-->");
     b = remove_between(&b, "<img", ">");
     b = anchors_to_md(&b);
-    b = remove_between(&b, "<div", ">");
-    for tag in ["</div>", "<details>", "</details>", "<summary>", "</summary>"] {
-        b = b.replace(tag, "");
-    }
-    for tag in ["<p>", "</p>", "<br>", "<br/>", "<br />"] {
-        b = b.replace(tag, "\n");
-    }
+    b = map_outside_code(&b, html_fragment_to_md);
     if author.starts_with("cursor") {
         b = b
             .replace("**High Severity**", "**‼ high severity**")
@@ -670,6 +781,36 @@ mod tests {
         assert!(!c.contains("cursor.com"), "buttons/footer must be gone: {c}");
         assert!(!c.contains("<!--"));
         assert!(!c.contains("<div"));
+    }
+
+    #[test]
+    fn html_converts_to_markdown() {
+        let c = clean_comment("", "<b>bold</b> and <code>x()</code> here");
+        assert_eq!(c, "**bold** and `x()` here");
+        let c = clean_comment("", "<ul><li>one</li><li>two</li></ul>");
+        assert_eq!(c, "- one\n- two");
+        let c = clean_comment("", "<h3>Steps</h3>reproduce &amp; verify &lt;3");
+        assert_eq!(c, "### Steps\nreproduce & verify <3");
+        let c = clean_comment(
+            "",
+            "<table><tr><th>col</th></tr><tr><td>val</td></tr></table>",
+        );
+        assert!(c.contains("| col |"), "{c}");
+        assert!(c.contains("| val |"), "{c}");
+    }
+
+    #[test]
+    fn html_stripping_spares_code_and_generics() {
+        // generics in prose are not real tags — leave them alone
+        let c = clean_comment("", "returns Vec<String> from parse");
+        assert_eq!(c, "returns Vec<String> from parse");
+        // inline code spans are never touched
+        let c = clean_comment("", "wrap in `Option<div>` and <b>note</b> it");
+        assert_eq!(c, "wrap in `Option<div>` and **note** it");
+        // fenced blocks are never touched
+        let c = clean_comment("", "```rust\nlet x: Vec<b> = vec![];\n&amp;\n```");
+        assert!(c.contains("Vec<b>"), "{c}");
+        assert!(c.contains("&amp;"), "{c}");
     }
 
     #[test]
