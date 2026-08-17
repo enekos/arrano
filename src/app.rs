@@ -145,6 +145,23 @@ impl ComposeTarget {
     pub fn allows_empty(&self) -> bool {
         matches!(self, ComposeTarget::Review { event: ReviewEvent::Approve, .. })
     }
+    /// Stable identity for the draft buffer — a draft is restored only when
+    /// the composer reopens on this exact same target.
+    pub fn key(&self) -> String {
+        match self {
+            ComposeTarget::PrComment { repo, number } => format!("pr:{repo}#{number}"),
+            ComposeTarget::ThreadReply { repo, number, comment_id, .. } => {
+                format!("thread:{repo}#{number}:{comment_id}")
+            }
+            ComposeTarget::Inline { repo, number, target } => format!(
+                "inline:{repo}#{number}:{}:{}:{}",
+                target.path, target.line, target.side
+            ),
+            ComposeTarget::Review { repo, number, event } => {
+                format!("review:{repo}#{number}:{}", event.rest())
+            }
+        }
+    }
 }
 
 pub struct Compose {
@@ -377,6 +394,8 @@ pub struct App {
     in_flight: HashSet<(String, u64)>,
     /// queued inline review comments per PR, flushed by `v`
     pub pending: HashMap<(String, u64), Vec<PendingComment>>,
+    /// composer buffers stashed by esc, keyed by ComposeTarget::key()
+    drafts: HashMap<String, Vec<String>>,
     refresh_secs: u64,
 
     /// links collected for the picker modal: (label, url)
@@ -458,7 +477,17 @@ pub fn expand_search(raw: &str, login: &str, org: Option<&str>) -> String {
 
 impl App {
     pub fn new(tx: Sender<AppEvent>, org: Option<String>) -> Self {
-        let app = App {
+        let app = Self::bare(tx, org);
+        let tx = app.tx.clone();
+        thread::spawn(move || {
+            let _ = tx.send(AppEvent::Login(gh::viewer_login()));
+        });
+        app
+    }
+
+    /// Constructor without the initial login fetch (testable headlessly).
+    fn bare(tx: Sender<AppEvent>, org: Option<String>) -> Self {
+        App {
             login: None,
             org,
             view: View::Prs,
@@ -488,6 +517,7 @@ impl App {
             cache: HashMap::new(),
             in_flight: HashSet::new(),
             pending: HashMap::new(),
+            drafts: HashMap::new(),
             refresh_secs: std::env::var("ARRANO_REFRESH_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -499,12 +529,7 @@ impl App {
             anim: None,
             sel_changed_at: None,
             tx,
-        };
-        let tx = app.tx.clone();
-        thread::spawn(move || {
-            let _ = tx.send(AppEvent::Login(gh::viewer_login()));
-        });
-        app
+        }
     }
 
     pub fn lane_state(&self) -> &LaneState {
@@ -1627,6 +1652,16 @@ impl App {
 
     // ---- composer ----
 
+    /// Open the composer on a target, restoring a stashed draft if one exists.
+    fn open_compose(&mut self, target: ComposeTarget) {
+        let mut c = Compose::new(target);
+        if let Some(draft) = self.drafts.remove(&c.target.key()) {
+            c.set_text(&draft.join("\n"));
+            self.toast("draft restored (clear it, then esc, to discard)", false);
+        }
+        self.input = Some(Input::Compose(c));
+    }
+
     fn open_composer(&mut self) {
         // reply to the selected review thread?
         if self.focus == Focus::Detail && self.tab == Tab::Comments {
@@ -1639,12 +1674,12 @@ impl App {
                             Some(l) => format!("{}:{}", t.path, l),
                             None => t.path.clone(),
                         };
-                        self.input = Some(Input::Compose(Compose::new(ComposeTarget::ThreadReply {
+                        self.open_compose(ComposeTarget::ThreadReply {
                             repo: d.repo.clone(),
                             number: d.number,
                             comment_id: cid,
                             loc,
-                        })));
+                        });
                         return;
                     }
                 }
@@ -1663,11 +1698,11 @@ impl App {
                 .and_then(|diff| diff.targets.get(self.diff_sel).cloned().flatten());
             match target {
                 Some(t) => {
-                    self.input = Some(Input::Compose(Compose::new(ComposeTarget::Inline {
+                    self.open_compose(ComposeTarget::Inline {
                         repo: d.repo.clone(),
                         number: d.number,
                         target: t,
-                    })));
+                    });
                 }
                 None => self.toast("not a commentable diff line", true),
             }
@@ -1675,10 +1710,10 @@ impl App {
         }
         // plain PR comment
         if let Some(pr) = self.selected_pr() {
-            self.input = Some(Input::Compose(Compose::new(ComposeTarget::PrComment {
+            self.open_compose(ComposeTarget::PrComment {
                 repo: pr.repo.clone(),
                 number: pr.number,
-            })));
+            });
         } else {
             self.toast("no PR selected", true);
         }
@@ -1686,11 +1721,11 @@ impl App {
 
     fn open_review_composer(&mut self, event: ReviewEvent) {
         if let Some(pr) = self.selected_pr() {
-            self.input = Some(Input::Compose(Compose::new(ComposeTarget::Review {
+            self.open_compose(ComposeTarget::Review {
                 repo: pr.repo.clone(),
                 number: pr.number,
                 event,
-            })));
+            });
         }
     }
 
@@ -1698,7 +1733,16 @@ impl App {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
             KeyCode::Esc => {
-                self.input = None;
+                // never silently lose a draft: non-empty buffers are stashed
+                // per target and restored when the composer reopens on it
+                if let Some(Input::Compose(c)) = self.input.take() {
+                    if c.text().trim().is_empty() {
+                        self.drafts.remove(&c.target.key());
+                    } else {
+                        self.drafts.insert(c.target.key(), c.lines);
+                        self.toast("draft saved — c reopens it", false);
+                    }
+                }
                 return;
             }
             KeyCode::Char('s') if ctrl => {
@@ -1757,6 +1801,7 @@ impl App {
             return;
         }
         self.input = None;
+        self.drafts.remove(&target.key());
         match target {
             ComposeTarget::PrComment { repo, number } => {
                 self.spawn_action(move || gh::post_comment(&repo, number, &body));
@@ -2303,6 +2348,91 @@ mod tests {
         assert_eq!(extract_ticket("import-channel-framing"), None);
         assert_eq!(extract_ticket("plain title without ticket"), None);
         assert_eq!(extract_ticket("feat/ABC-1"), Some("ABC-1".into()));
+    }
+
+    #[test]
+    fn compose_target_keys_are_target_specific() {
+        let pr = ComposeTarget::PrComment { repo: "o/r".into(), number: 1 };
+        let thread = ComposeTarget::ThreadReply {
+            repo: "o/r".into(),
+            number: 1,
+            comment_id: 7,
+            loc: "a.rs:3".into(),
+        };
+        let inline = ComposeTarget::Inline {
+            repo: "o/r".into(),
+            number: 1,
+            target: DiffTarget { path: "a.rs".into(), line: 3, side: "RIGHT" },
+        };
+        let review = ComposeTarget::Review {
+            repo: "o/r".into(),
+            number: 1,
+            event: ReviewEvent::Approve,
+        };
+        let keys = [pr.key(), thread.key(), inline.key(), review.key()];
+        for (i, a) in keys.iter().enumerate() {
+            for b in keys.iter().skip(i + 1) {
+                assert_ne!(a, b);
+            }
+        }
+        // different comment id on the same thread → different draft slot
+        let other = ComposeTarget::ThreadReply {
+            repo: "o/r".into(),
+            number: 1,
+            comment_id: 8,
+            loc: "a.rs:9".into(),
+        };
+        assert_ne!(thread.key(), other.key());
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn esc_stashes_draft_and_reopen_restores_it() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut app = App::bare(tx, None);
+        let target = || ComposeTarget::PrComment { repo: "o/r".into(), number: 1 };
+
+        // type, esc → draft stashed, composer closed
+        app.open_compose(target());
+        app.on_compose_key(key(KeyCode::Char('h')));
+        app.on_compose_key(key(KeyCode::Char('i')));
+        app.on_compose_key(key(KeyCode::Esc));
+        assert!(app.input.is_none());
+        assert_eq!(app.drafts.get(&target().key()).map(|l| l.len()), Some(1));
+
+        // reopen same target → restored; different target → empty
+        app.open_compose(target());
+        match &app.input {
+            Some(Input::Compose(c)) => assert_eq!(c.text(), "hi"),
+            _ => panic!("composer should be open"),
+        }
+        app.on_compose_key(key(KeyCode::Esc));
+        app.open_compose(ComposeTarget::PrComment { repo: "o/r".into(), number: 2 });
+        match &app.input {
+            Some(Input::Compose(c)) => assert_eq!(c.text(), ""),
+            _ => panic!("composer should be open"),
+        }
+    }
+
+    #[test]
+    fn esc_on_empty_buffer_clears_the_draft() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let mut app = App::bare(tx, None);
+        let target = || ComposeTarget::PrComment { repo: "o/r".into(), number: 1 };
+
+        app.open_compose(target());
+        app.on_compose_key(key(KeyCode::Char('x')));
+        app.on_compose_key(key(KeyCode::Esc));
+        assert!(app.drafts.contains_key(&target().key()));
+
+        // reopen, delete the text, esc → draft gone for good
+        app.open_compose(target());
+        app.on_compose_key(key(KeyCode::Backspace));
+        app.on_compose_key(key(KeyCode::Esc));
+        assert!(!app.drafts.contains_key(&target().key()));
     }
 
     #[test]

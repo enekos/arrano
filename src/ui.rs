@@ -1338,9 +1338,9 @@ fn draw_composer(f: &mut Frame, app: &App, c: &Compose) {
         format!(" {} ", c.target.describe())
     };
     let hint = if c.target.allows_empty() {
-        " ctrl-s submit (empty ok) · ctrl-r humanize · ctrl-z undo · esc discard "
+        " ctrl-s submit (empty ok) · ctrl-r humanize · ctrl-z undo · esc save draft "
     } else {
-        " ctrl-s post · ctrl-r humanize (local llm) · ctrl-z undo · esc discard "
+        " ctrl-s post · ctrl-r humanize (local llm) · ctrl-z undo · esc save draft "
     };
     let block = Block::default()
         .borders(Borders::ALL)
@@ -1464,7 +1464,7 @@ fn draw_help(f: &mut Frame) {
         ("o (comments)", "open the selected comment/thread on GitHub"),
         ("R", "run claude code review on the diff"),
         ("P", "post claude review as PR comment"),
-        ("in composer", "ctrl-s post · ctrl-r humanize (local llm) · ctrl-z undo"),
+        ("in composer", "ctrl-s post · ctrl-r humanize (local llm) · ctrl-z undo · esc saves a draft"),
         ("ctrl-f / ctrl-b", "page forward / back (smooth scroll)"),
         ("mouse wheel", "scroll whatever pane is under the pointer"),
         ("r", "refresh everything"),

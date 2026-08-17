@@ -85,6 +85,9 @@ immediately.
 draft with a **local** LLM into your own review voice — informal, direct, no
 filler, kind (blame and score-keeping are stripped, verdicts like "lgtm"
 survive); `ctrl-z` restores the original. Nothing leaves the machine.
+`esc` never loses work: a non-empty buffer is saved as a draft and restored
+when the composer reopens on the same target (PR, thread, diff line, or
+review); clear the text and `esc` again to discard it.
 
 ## Claude reviews
 
