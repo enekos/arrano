@@ -65,6 +65,31 @@ pub struct Check {
     pub url: String,
 }
 
+impl Check {
+    /// A completed check that didn't pass — eligible for a rerun.
+    pub fn failed(&self) -> bool {
+        matches!(
+            self.conclusion.as_str(),
+            "FAILURE" | "ERROR" | "TIMED_OUT" | "STARTUP_FAILURE" | "CANCELLED"
+        )
+    }
+}
+
+/// Extract (owner/repo, run id) from a GitHub Actions check detailsUrl, e.g.
+/// https://github.com/o/r/actions/runs/1234567890/job/555. External CI
+/// (circleci, buildkite, …) yields None — there is no `gh run` to rerun.
+pub fn workflow_run_ref(url: &str) -> Option<(String, u64)> {
+    let segs: Vec<&str> = url.split('/').filter(|s| !s.is_empty()).collect();
+    let i = segs.iter().position(|&s| s == "actions")?;
+    // scheme, host, owner, repo must precede "actions"
+    if i < 4 || !segs[0].ends_with(':') || segs.get(i + 1) != Some(&"runs") {
+        return None;
+    }
+    let (owner, repo) = (segs[i - 2], segs[i - 1]);
+    let id: u64 = segs.get(i + 2)?.parse().ok()?;
+    Some((format!("{owner}/{repo}"), id))
+}
+
 #[derive(Clone, Debug)]
 pub struct PrDetail {
     pub repo: String,
@@ -440,6 +465,38 @@ mod tests {
         assert_eq!(d.checks[0].name, "build / test");
         assert_eq!(d.checks[1].conclusion, "FAILURE");
         assert_eq!(d.checks[1].status, "COMPLETED");
+    }
+
+    #[test]
+    fn workflow_run_ref_parses_actions_urls() {
+        assert_eq!(
+            workflow_run_ref("https://github.com/acme/api/actions/runs/1234567890/job/98765"),
+            Some(("acme/api".into(), 1234567890))
+        );
+        assert_eq!(
+            workflow_run_ref("https://github.com/acme/api/actions/runs/42"),
+            Some(("acme/api".into(), 42))
+        );
+        // external CI and malformed urls yield nothing
+        assert_eq!(workflow_run_ref("https://circleci.com/gh/acme/api/123"), None);
+        assert_eq!(workflow_run_ref(""), None);
+        assert_eq!(workflow_run_ref("https://github.com/acme/api/actions/runs/abc"), None);
+        assert_eq!(workflow_run_ref("https://github.com/actions/runs/42"), None);
+    }
+
+    #[test]
+    fn check_failed_conclusions() {
+        let c = |conclusion: &str| Check {
+            name: "x".into(),
+            status: "COMPLETED".into(),
+            conclusion: conclusion.into(),
+            url: String::new(),
+        };
+        assert!(c("FAILURE").failed());
+        assert!(c("TIMED_OUT").failed());
+        assert!(c("CANCELLED").failed());
+        assert!(!c("SUCCESS").failed());
+        assert!(!c("").failed());
     }
 
     #[test]

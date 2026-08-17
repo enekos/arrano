@@ -58,6 +58,7 @@ title, author, or branch, so `ABC-123` and `#7076` just work. On enter:
 | `enter`, `tab`, `esc` | detail, toggle focus, back |
 | `h` / `l` | switch detail tab |
 | `o` | open in browser (PR, check run, comment, or issue) |
+| `t` | rerun the failed jobs of the selected GitHub Actions run (checks tab; confirm first) |
 | `c` | comment — PR comment; diff line: queue for review; thread: reply |
 | `v` | submit review: approve / request changes / comment |
 | `m` | merge — squash / merge commit / rebase |

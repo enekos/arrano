@@ -71,6 +71,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             "post claude review as PR comment?",
             &[("y", "post it"), ("esc", "cancel")],
         ),
+        Some(Modal::Rerun) => {
+            let name = app.rerun.as_ref().map(|(_, _, n)| n.as_str()).unwrap_or("run");
+            draw_choice_modal(
+                f,
+                &format!("rerun failed jobs of {name}?"),
+                &[("y", "rerun"), ("esc", "cancel")],
+            )
+        }
         Some(Modal::Links) => draw_links(f, app),
         Some(Modal::Help) => draw_help(f),
         None => {}
@@ -597,6 +605,9 @@ fn draw_checks(f: &mut Frame, app: &App, area: Rect) {
         ];
         if sel && !c.url.is_empty() {
             spans.push(Span::styled("  (enter/o: open)", Style::new().fg(Color::DarkGray)));
+        }
+        if sel && c.failed() && crate::model::workflow_run_ref(&c.url).is_some() {
+            spans.push(Span::styled("  (t: rerun failed jobs)", Style::new().fg(Color::DarkGray)));
         }
         lines.push(Line::from(spans));
     }
@@ -1253,6 +1264,7 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             ("h/l", "tab"),
             ("j/k", "check"),
             ("o", "open run"),
+            ("t", "rerun failed"),
             ("esc", "list"),
             ("?", "help"),
         ],
@@ -1437,6 +1449,7 @@ fn draw_help(f: &mut Frame) {
         ("tab", "toggle list ↔ detail focus"),
         ("h / l", "switch detail tab"),
         ("o", "open in browser (PR, or check run in checks tab)"),
+        ("t (checks)", "rerun the failed jobs of the selected actions run"),
         ("f", "link picker — open any link from the current comment/body"),
         ("c", "comment (PR · queue on diff line · reply in comments tab)"),
         ("v", "submit review (approve / request changes / comment)"),

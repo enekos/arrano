@@ -327,6 +327,12 @@ pub fn submit_review(
     ))
 }
 
+/// Rerun the failed jobs of a GitHub Actions workflow run (mutates CI).
+pub fn rerun_run(repo: &str, run_id: u64) -> GhResult<String> {
+    run(&["run", "rerun", &run_id.to_string(), "--failed", "--repo", repo])?;
+    Ok(format!("rerun requested for run {run_id} ({repo})"))
+}
+
 pub fn open_url(url: &str) {
     let _ = Command::new("open")
         .arg(url)

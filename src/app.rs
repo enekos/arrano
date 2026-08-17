@@ -83,6 +83,7 @@ pub enum Modal {
     Update,
     ConfirmPost,
     Review,
+    Rerun,
     Links,
     Help,
 }
@@ -364,6 +365,8 @@ pub struct App {
     /// monochrome rendering for e-ink displays
     pub eink: bool,
     pub modal: Option<Modal>,
+    /// workflow run pending rerun confirmation (repo, run id, check name)
+    pub rerun: Option<(String, u64, String)>,
     pub toasts: Vec<(String, Instant, bool)>,
     pub pending_actions: usize,
     pub quit: bool,
@@ -477,6 +480,7 @@ impl App {
             block_sel: 0,
             eink: std::env::var("ARRANO_EINK").map(|v| v != "0").unwrap_or(false),
             modal: None,
+            rerun: None,
             toasts: Vec::new(),
             pending_actions: 0,
             quit: false,
@@ -1868,6 +1872,19 @@ impl App {
                 }
                 _ => self.modal = None,
             },
+            Modal::Rerun => match key.code {
+                KeyCode::Char('y') => {
+                    self.modal = None;
+                    if let Some((repo, run_id, name)) = self.rerun.take() {
+                        self.toast(format!("rerunning failed jobs of {name}…"), false);
+                        self.spawn_action(move || gh::rerun_run(&repo, run_id));
+                    }
+                }
+                _ => {
+                    self.modal = None;
+                    self.rerun = None;
+                }
+            },
             Modal::Links => match key.code {
                 KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('f') => self.modal = None,
                 KeyCode::Char('j') | KeyCode::Down => {
@@ -2034,6 +2051,7 @@ impl App {
                     KeyCode::Char('k') | KeyCode::Up => {
                         self.checks_sel = self.checks_sel.saturating_sub(1)
                     }
+                    KeyCode::Char('t') => self.rerun_selected_check(),
                     KeyCode::Enter | KeyCode::Char('o') => {
                         if let Some(c) = self
                             .detail
@@ -2117,6 +2135,27 @@ impl App {
                 }
                 _ => {}
             },
+        }
+    }
+
+    /// `t` in the checks tab: rerun the failed jobs of the selected GitHub
+    /// Actions run. Confirm first — this mutates CI.
+    fn rerun_selected_check(&mut self) {
+        let Some(c) = self.detail.data.as_ref().and_then(|d| d.checks.get(self.checks_sel))
+        else {
+            self.toast("no check selected", true);
+            return;
+        };
+        if !c.failed() {
+            self.toast("only failed checks can be rerun", true);
+            return;
+        }
+        match crate::model::workflow_run_ref(&c.url) {
+            Some((repo, run_id)) => {
+                self.rerun = Some((repo, run_id, c.name.clone()));
+                self.modal = Some(Modal::Rerun);
+            }
+            None => self.toast("not a GitHub Actions run — rerun it from its own CI", true),
         }
     }
 
