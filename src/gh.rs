@@ -334,7 +334,8 @@ pub fn rerun_run(repo: &str, run_id: u64) -> GhResult<String> {
 }
 
 pub fn open_url(url: &str) {
-    let _ = Command::new("open")
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let _ = Command::new(opener)
         .arg(url)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
