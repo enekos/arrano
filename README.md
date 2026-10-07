@@ -130,3 +130,7 @@ reversed.
 | `LINEAR_API_KEY` | Linear GraphQL auth for the linear view |
 | `ARRANO_WORKTREE_DIR` | overrides where `w` places worktrees (default: sibling `<repo>-worktrees/`) |
 | `ARRANO_EINK` | `1` enables monochrome e-ink mode (same as `--eink`) |
+
+## License
+
+MIT.
