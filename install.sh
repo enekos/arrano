@@ -18,8 +18,8 @@ case "$os" in
     esac ;;
   Linux)
     case "$arch" in
-      x86_64) target="x86_64-unknown-linux-gnu" ;;
-      aarch64 | arm64) target="aarch64-unknown-linux-gnu" ;;
+      x86_64) target="x86_64-unknown-linux-musl" ;;
+      aarch64 | arm64) target="aarch64-unknown-linux-musl" ;;
       *) echo "error: unsupported Linux arch: $arch" >&2; exit 1 ;;
     esac ;;
   *) echo "error: unsupported OS: $os" >&2; exit 1 ;;
@@ -32,7 +32,7 @@ trap 'rm -rf "$tmp"' EXIT
 
 echo "→ downloading $url"
 curl -fsSL "$url" -o "$tmp/$BIN.tar.gz"
-tar -xzf "$tmp/$BIN.tar.gz" -C "$tmp"
+tar -xzf "$tmp/$BIN.tar.gz" -C "$tmp" --strip-components=1
 
 mkdir -p "$dir"
 install -m 755 "$tmp/$BIN" "$dir/$BIN"

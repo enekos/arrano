@@ -11,6 +11,18 @@ curl -fsSL https://raw.githubusercontent.com/enekos/arrano/master/install.sh | b
 
 (or `cargo install --path .` from a checkout)
 
+On Linux, packages:
+
+```bash
+yay -S arrano                                     # Arch, from the AUR
+sudo apt install ./arrano_<version>_amd64.deb       # Debian, Ubuntu
+sudo dnf install ./arrano-<version>-1.x86_64.rpm    # Fedora, RHEL
+sudo apk add --allow-untrusted ./arrano_<version>_x86_64.apk   # Alpine
+nix run github:enekos/arrano                     # Nix
+```
+
+The `.deb`, `.rpm` and `.apk` files are on each [release](https://github.com/enekos/arrano/releases), for x86_64 and arm64.
+
 ```
 arrano                  # everything, all orgs
 arrano --org my-org     # scope both lanes to one org/owner

@@ -1,0 +1,33 @@
+name: arrano
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+maintainer: Eneko Sarasola <113593779+enekos@users.noreply.github.com>
+description: "Eagle view over your GitHub PRs: lazygit-style TUI on top of gh, with Claude Code reviews."
+homepage: https://github.com/enekos/arrano
+license: MIT
+contents:
+  - src: dist/pkg/arrano
+    dst: /usr/bin/arrano
+    file_info:
+      mode: 0755
+  - src: LICENSE
+    dst: /usr/share/licenses/arrano/LICENSE
+  - src: README.md
+    dst: /usr/share/doc/arrano/README.md
+overrides:
+  deb:
+    recommends:
+      - gh
+      - git
+      - xdg-utils
+  rpm:
+    recommends:
+      - gh
+      - git
+      - xdg-utils
+  apk:
+    recommends:
+      - github-cli
+      - git
+      - xdg-utils
