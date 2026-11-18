@@ -359,6 +359,7 @@ pub struct ClaudeState {
 pub struct App {
     pub login: Option<String>,
     pub org: Option<String>,
+    pub team: Option<String>,
     pub view: View,
     pub lane: Lane,
     pub lanes: [LaneState; LANES],
@@ -432,8 +433,9 @@ pub fn pr_matches(pr: &Pr, filter: &str) -> bool {
         return true;
     }
     let hay = format!(
-        "{} #{} {} {} {}",
-        pr.repo, pr.number, pr.title, pr.author, pr.head_ref
+        "{} #{} {} {} {} {}",
+        pr.repo, pr.number, pr.title, pr.author, pr.head_ref,
+        pr.labels.iter().map(|l| l.name.as_str()).collect::<Vec<_>>().join(" ")
     )
     .to_lowercase();
     filter
@@ -476,8 +478,9 @@ pub fn expand_search(raw: &str, login: &str, org: Option<&str>) -> String {
 }
 
 impl App {
-    pub fn new(tx: Sender<AppEvent>, org: Option<String>) -> Self {
-        let app = Self::bare(tx, org);
+    pub fn new(tx: Sender<AppEvent>, org: Option<String>, team: Option<String>) -> Self {
+        let mut app = Self::bare(tx, org);
+        app.team = team;
         let tx = app.tx.clone();
         thread::spawn(move || {
             let _ = tx.send(AppEvent::Login(gh::viewer_login()));
@@ -490,6 +493,7 @@ impl App {
         App {
             login: None,
             org,
+            team: None,
             view: View::Prs,
             lane: Lane::Mine,
             lanes: Default::default(),
@@ -792,8 +796,14 @@ impl App {
         ls.loading = true;
         ls.error = None;
         let tx = self.tx.clone();
+        let team = self.team.clone();
+        let org = self.org.clone();
         thread::spawn(move || {
-            let _ = tx.send(AppEvent::Lists(lane, gh::search_prs(&q)));
+            let result = match team {
+                Some(team) => gh::team_prs(&team, &q, lane == Lane::Mine, org.as_deref()),
+                None => gh::search_prs(&q),
+            };
+            let _ = tx.send(AppEvent::Lists(lane, result));
         });
     }
 
@@ -2327,7 +2337,16 @@ mod tests {
             head_ref: head.into(),
             review_decision: String::new(),
             ci: Ci::None,
+            labels: Vec::new(),
         }
+    }
+
+    #[test]
+    fn filter_matches_labels() {
+        let mut p = pr("acme/api", 1, "fix", "main");
+        p.labels.push(crate::model::Label { name: "Team:Thunder".into(), color: "abcdef".into() });
+        assert!(pr_matches(&p, "team:thunder"));
+        assert!(!pr_matches(&p, "team:other"));
     }
 
     #[test]

@@ -23,20 +23,27 @@ use crate::app::App;
 
 const USAGE: &str = "arrano — eagle view over your GitHub PRs
 
-usage: arrano [--org <org>] [--eink]
+usage: arrano [--org <org>] [--team <org/team>] [--eink]
 
   -o, --org <org>   only show PRs in one org/owner (e.g. --org my-org)
+      --team <org/team>  only PRs requesting review from this GitHub team
       --eink        monochrome mode for e-ink displays (also $ARRANO_EINK=1)
   -V, --version     print version
   -h, --help        show this help";
 
-fn parse_args() -> (Option<String>, bool) {
+fn parse_args() -> (Option<String>, Option<String>, bool) {
     let mut org: Option<String> = None;
+    let mut team = None;
     let mut eink = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         match a.as_str() {
             "--eink" => eink = true,
+            "--team" => team = args.next().or_else(|| {
+                eprintln!("--team needs org/team");
+                std::process::exit(2);
+            }),
+            _ if a.starts_with("--team=") => team = Some(a[7..].to_owned()),
             "-o" | "--org" => match args.next() {
                 Some(v) => org = Some(v),
                 None => {
@@ -59,18 +66,24 @@ fn parse_args() -> (Option<String>, bool) {
             }
         }
     }
-    (org, eink)
+    if let Some(value) = &team {
+        if gh::team_parts(value).is_err() {
+            eprintln!("--team needs org/team (for example join-com/thunder)");
+            std::process::exit(2);
+        }
+    }
+    (org, team, eink)
 }
 
 fn main() -> Result<()> {
-    let (org, eink) = parse_args();
+    let (org, team, eink) = parse_args();
     if !std::io::stdout().is_terminal() {
         eprintln!("arrano is a TUI — run it in a terminal");
         std::process::exit(1);
     }
 
     let (tx, rx) = mpsc::channel();
-    let mut app = App::new(tx, org);
+    let mut app = App::new(tx, org, team);
     app.eink = app.eink || eink;
     let mut terminal = ratatui::init();
     let _ = execute!(std::io::stdout(), EnableMouseCapture);

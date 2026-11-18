@@ -127,14 +127,14 @@ fn short_repo(repo: &str) -> &str {
 
 fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     let ls = app.lane_state();
-    let brand = match &app.org {
+    let brand = match app.team.as_ref().or(app.org.as_ref()) {
         Some(o) => format!(" arrano · {o} "),
         None => " arrano ".to_string(),
     };
     let mut title_spans = vec![Span::styled(brand, Style::new().add_modifier(Modifier::BOLD))];
     for lane in [Lane::Mine, Lane::Review, Lane::Search] {
         let n = app.lanes[lane as usize].prs.len();
-        let label = format!("[{}] {} ({}) ", lane as usize + 1, lane.title(), n);
+        let label = format!("[{}] {} ({}) ", lane as usize + 1, if lane == Lane::Mine && app.team.is_some() { "team reviews" } else { lane.title() }, n);
         let style = if lane == app.lane {
             Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
         } else {
@@ -202,13 +202,33 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
             if pos == ls.sel {
                 sel_line = lines.len();
             }
-            lines.push(pr_row(pr, pos == ls.sel, app.lane != Lane::Mine, inner.width));
+            lines.push(pr_row(pr, pos == ls.sel, app.lane != Lane::Mine || app.team.is_some(), inner.width));
+            lines.extend(label_lines(&pr.labels, inner.width as usize, "    "));
         }
     }
 
     let height = inner.height as usize;
     let scroll = if sel_line >= height { (sel_line + 1 - height) as u16 } else { 0 };
     f.render_widget(Paragraph::new(Text::from(lines)).scroll((scroll, 0)), inner);
+}
+
+fn label_lines(labels: &[crate::model::Label], width: usize, indent: &str) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let mut spans = vec![Span::raw(indent.to_owned())];
+    let mut used = indent.len();
+    for label in labels {
+        let badge = format!(" [{}] ", label.name);
+        let len = badge.chars().count();
+        if used + len > width && spans.len() > 1 {
+            lines.push(Line::from(std::mem::take(&mut spans)));
+            spans.push(Span::raw(indent.to_owned()));
+            used = indent.len();
+        }
+        spans.push(Span::styled(badge, Style::new().fg(hex_color(&label.color)).add_modifier(Modifier::BOLD)));
+        used += len;
+    }
+    if spans.len() > 1 { lines.push(Line::from(spans)); }
+    lines
 }
 
 fn pr_row(pr: &Pr, selected: bool, show_author: bool, width: u16) -> Line<'static> {
@@ -369,6 +389,7 @@ fn draw_overview(f: &mut Frame, app: &mut App, area: Rect) {
     for l in wrap(&d.title, w) {
         lines.push(Line::from(Span::styled(l, Style::new().add_modifier(Modifier::BOLD))));
     }
+    lines.extend(label_lines(&d.labels, w, ""));
     lines.push(Line::from(Span::styled(d.url.clone(), Style::new().fg(Color::Blue))));
     lines.push(Line::default());
     let state = if d.is_draft { "DRAFT".to_string() } else { d.state.clone() };
@@ -1489,4 +1510,26 @@ fn draw_help(f: &mut Frame) {
         })
         .collect();
     f.render_widget(Paragraph::new(Text::from(lines)), inner);
+}
+
+#[cfg(test)]
+mod label_tests {
+    use super::*;
+
+    #[test]
+    fn label_badges_wrap_and_render_with_color() {
+        let labels = vec![
+            crate::model::Label { name: "bug".into(), color: "ff0000".into() },
+            crate::model::Label { name: "team".into(), color: "00ff00".into() },
+        ];
+        let lines = label_lines(&labels, 14, "    ");
+        assert_eq!(lines.len(), 2);
+        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(14, 3)).unwrap();
+        terminal.draw(|f| f.render_widget(Paragraph::new(lines.clone()), f.area())).unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(5, 0)].symbol(), "[");
+        assert_eq!(buffer[(5, 0)].fg, Color::Rgb(255, 0, 0));
+        assert_eq!(buffer[(5, 1)].symbol(), "[");
+        assert!(label_lines(&[], 14, "").is_empty());
+    }
 }

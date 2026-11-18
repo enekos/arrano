@@ -9,6 +9,12 @@ pub enum Ci {
 }
 
 #[derive(Clone, Debug)]
+pub struct Label {
+    pub name: String,
+    pub color: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct Pr {
     pub id: String,
     pub repo: String,
@@ -20,6 +26,7 @@ pub struct Pr {
     pub updated_at: String,
     pub base_ref: String,
     pub head_ref: String,
+    pub labels: Vec<Label>,
     pub review_decision: String,
     pub ci: Ci,
 }
@@ -107,6 +114,7 @@ pub struct PrDetail {
     pub changed_files: i64,
     pub mergeable: String,
     pub merge_state: String,
+    pub labels: Vec<Label>,
     pub review_decision: String,
     pub comments: Vec<Comment>,
     pub reviews: Vec<Review>,
@@ -135,6 +143,14 @@ pub fn ci_from(state: Option<&str>) -> Ci {
     }
 }
 
+fn parse_labels(pr: &Value) -> Vec<Label> {
+    pr.pointer("/labels/nodes").and_then(Value::as_array)
+        .map(|nodes| nodes.iter().filter_map(|n| {
+            let name = n.get("name")?.as_str()?.to_owned();
+            Some(Label { name, color: s(n, "/color") })
+        }).collect()).unwrap_or_default()
+}
+
 pub fn parse_search(root: &Value) -> Vec<Pr> {
     let mut out: Vec<Pr> = Vec::new();
     let nodes = root
@@ -159,6 +175,7 @@ pub fn parse_search(root: &Value) -> Vec<Pr> {
             updated_at: s(n, "/updatedAt"),
             base_ref: s(n, "/baseRefName"),
             head_ref: s(n, "/headRefName"),
+            labels: parse_labels(n),
             review_decision: s(n, "/reviewDecision"),
             ci,
         });
@@ -304,6 +321,7 @@ pub fn parse_detail(root: &Value, repo: &str) -> Option<PrDetail> {
         changed_files: i(pr, "/changedFiles"),
         mergeable: s(pr, "/mergeable"),
         merge_state: s(pr, "/mergeStateStatus"),
+        labels: parse_labels(pr),
         review_decision: s(pr, "/reviewDecision"),
         comments: parse_comments(pr.pointer("/comments/nodes")),
         reviews,
@@ -395,6 +413,20 @@ pub fn rel_time(iso: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_labels_for_list_and_detail() {
+        let node = serde_json::json!({"number": 1, "labels": {"nodes": [
+            {"name": "needs review", "color": "ff0000"},
+            {"name": "team:平台", "color": "abcdef"}, null
+        ]}});
+        let list = parse_search(&serde_json::json!({"data": {"search": {"nodes": [node.clone()]}}}));
+        let detail = parse_detail(&serde_json::json!({"data": {"repository": {"pullRequest": node}}}), "o/r").unwrap();
+        assert_eq!(list[0].labels.len(), 2);
+        assert_eq!(detail.labels[0].name, "needs review");
+        assert_eq!(list[0].labels[1].color, "abcdef");
+        assert!(parse_labels(&serde_json::json!({})).is_empty());
+    }
 
     #[test]
     fn parse_search_sorts_and_skips_non_prs() {

@@ -14,6 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/enekos/arrano/master/install.sh | b
 ```
 arrano                  # everything, all orgs
 arrano --org my-org     # scope both lanes to one org/owner
+arrano --team my-org/my-team  # PRs requesting review from a GitHub team
 arrano --eink           # monochrome mode for e-ink displays
 ```
 
@@ -21,6 +22,26 @@ Requires `gh` (authenticated). For Claude reviews: the `claude` CLI. For the
 Linear view: `$LINEAR_API_KEY` (or the `linear` CLI). For comment humanizing:
 any local LLM — `ollama`, or llama.cpp's `llama-cli` plus a GGUF
 (auto-discovered in the HF / LM Studio caches).
+
+## Team scope
+
+`--team org/team-slug` replaces **my PRs** with **team reviews**, showing open
+PRs requesting review from that GitHub team across repositories. This uses
+GitHub's `team-review-requested:org/team` search qualifier, regardless of who
+authored the PR or owns the service. The personal review-requested lane is
+also restricted to PRs requesting review from that team.
+
+Free-form search retains the team review scope, even with an explicit repo
+or author qualifier. Set the team with `--team`; entering a separate
+`team-review-requested:` qualifier in search displays an error. Add `--org`
+to restrict repository ownership. Without `--team`, personal lanes work as
+before. Search is paginated; queries exceeding GitHub's 1,000-result limit
+must be narrowed. This is a queue of outstanding team review requests,
+not a historical archive of requests that have already been fulfilled.
+
+GitHub PR labels appear as bold, colored badges on dedicated rows under each
+PR and directly below the overview title. Label names also match the local
+`/` filter; use `label:"needs review"` for GitHub search.
 
 ## Lanes & views
 
@@ -38,7 +59,7 @@ selection, so browsing is instant.
 ## Filter & search (`/`)
 
 Typing filters the current lane live — every word must match repo, `#number`,
-title, author, or branch, so `ABC-123` and `#7076` just work. On enter:
+title, author, branch, or label, so `ABC-123` and `#7076` just work. On enter:
 
 - plain words with local hits → stays a local filter
 - qualifiers (`author:x`, `is:merged`, `repo:o/r`, bare `merged`/`closed`/

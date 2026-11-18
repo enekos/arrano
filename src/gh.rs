@@ -95,12 +95,15 @@ pub fn viewer_login() -> GhResult<String> {
 // statusCheckRollup inside a search is the classic GitHub GraphQL timeout
 // trigger — CI states are fetched separately in small batches (fetch_ci).
 const LIST_QUERY: &str = r#"
-query($q: String!) {
-  search(query: $q, type: ISSUE, first: 50) {
+query($q: String!, $after: String) {
+  search(query: $q, type: ISSUE, first: 50, after: $after) {
+    issueCount
+    pageInfo { hasNextPage endCursor }
     nodes {
       ... on PullRequest {
         id number title url isDraft updatedAt headRefName baseRefName
         additions deletions reviewDecision
+        labels(first: 100) { nodes { name color } }
         repository { nameWithOwner }
         author { login }
       }
@@ -110,8 +113,53 @@ query($q: String!) {
 "#;
 
 pub fn search_prs(search: &str) -> GhResult<Vec<Pr>> {
-    let v = graphql(LIST_QUERY, &[("q", search)], &[])?;
-    Ok(parse_search(&v))
+    let mut prs = Vec::new();
+    let mut cursor = String::new();
+    loop {
+        let mut fields = vec![("q", search)];
+        if !cursor.is_empty() { fields.push(("after", cursor.as_str())); }
+        let v = graphql(LIST_QUERY, &fields, &[])?;
+        if v.pointer("/data/search/issueCount").and_then(Value::as_u64).unwrap_or(0) > 1000 {
+            return Err("Search exceeds GitHub's 1,000-result limit; narrow your query".into());
+        }
+        prs.extend(parse_search(&v));
+        if v.pointer("/data/search/pageInfo/hasNextPage").and_then(Value::as_bool) != Some(true) { break; }
+        if prs.len() >= 1000 { return Err("Search exceeds GitHub's 1,000-result limit; narrow your query".into()); }
+        let next = v.pointer("/data/search/pageInfo/endCursor").and_then(Value::as_str)
+            .filter(|next| !next.is_empty() && *next != cursor)
+            .ok_or("GitHub returned an invalid search cursor")?;
+        cursor = next.to_owned();
+    }
+    prs.sort_by(|a, b| a.repo.cmp(&b.repo).then(b.updated_at.cmp(&a.updated_at)));
+    Ok(prs)
+}
+
+pub fn team_parts(team: &str) -> GhResult<(&str, &str)> {
+    let (org, slug) = team.split_once('/').ok_or("team must be org/team")?;
+    let valid = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_');
+    if !valid(org) || !valid(slug) { return Err("team must be org/team".into()); }
+    Ok((org, slug))
+}
+
+/// Team review scope is mandatory, including in the free-form search lane.
+fn team_query(team: &str, query: &str, team_lane: bool, org_scope: Option<&str>) -> GhResult<String> {
+    team_parts(team)?;
+    let base = if team_lane {
+        let scope = org_scope.map(|o| format!(" org:{o}")).unwrap_or_default();
+        format!("is:pr is:open archived:false sort:updated-desc{scope}")
+    } else {
+        // Multiple team qualifiers can broaden GitHub searches. Keep one source
+        // of truth for this mandatory scope rather than silently changing it.
+        if query.to_ascii_lowercase().contains("team-review-requested:") {
+            return Err("Team review scope is set by --team; remove team-review-requested: from the search".into());
+        }
+        query.to_owned()
+    };
+    Ok(format!("{base} team-review-requested:{team}"))
+}
+
+pub fn team_prs(team: &str, query: &str, team_lane: bool, org_scope: Option<&str>) -> GhResult<Vec<Pr>> {
+    search_prs(&team_query(team, query, team_lane, org_scope)?)
 }
 
 /// Batched CI lookup: one aliased query per chunk of PRs, far cheaper than
@@ -152,6 +200,7 @@ query($owner: String!, $name: String!, $number: Int!) {
       id number title body url isDraft state baseRefName headRefName
       additions deletions changedFiles
       mergeable mergeStateStatus reviewDecision updatedAt
+      labels(first: 100) { nodes { name color } }
       author { login }
       comments(first: 50) { nodes {
         author { login } body createdAt url
@@ -339,4 +388,34 @@ pub fn open_url(url: &str) {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn();
+}
+
+#[cfg(test)]
+mod team_tests {
+    use super::*;
+
+    #[test]
+    fn team_review_scope_applies_to_every_lane() {
+        let q = team_query("acme/platform", "author:me", true, Some("acme")).unwrap();
+        assert!(q.contains("is:open"));
+        assert!(q.contains("org:acme"));
+        assert!(!q.contains("author:me"));
+        assert!(q.contains("team-review-requested:acme/platform"));
+        let q = team_query("acme/platform", "is:pr review-requested:alice", false, None).unwrap();
+        assert!(q.contains("review-requested:alice"));
+        assert!(q.contains("team-review-requested:acme/platform"));
+        let q = team_query("acme/platform", "is:pr repo:other/repo label:bug", false, None).unwrap();
+        assert!(q.contains("repo:other/repo label:bug"));
+        assert!(q.contains("team-review-requested:acme/platform"));
+        assert!(team_query("acme/platform", "team-review-requested:acme/other", false, None).is_err());
+        assert!(team_query("acme/platform", "-TEAM-REVIEW-REQUESTED:acme/platform", false, None).is_err());
+    }
+
+    #[test]
+    fn validates_team_scope_before_building_endpoint() {
+        assert_eq!(team_parts("acme/platform-dev").unwrap(), ("acme", "platform-dev"));
+        for invalid in ["", "acme", "/dev", "acme/", "acme/dev/extra", "acme/dev?role=all", "acme/a b"] {
+            assert!(team_parts(invalid).is_err(), "{invalid}");
+        }
+    }
 }
